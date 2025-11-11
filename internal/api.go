@@ -8,15 +8,18 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
 const defaultBaseURL = "https://api.latticehq.com/"
 
 type Client struct {
-	base   *url.URL
-	http   *http.Client
-	apiKey string
+	base          *url.URL
+	http          *http.Client
+	apiKey        string
+	userCache     map[string]*User
+	questionCache map[string]*Question
 }
 
 func NewClient(apiKey string) (*Client, error) {
@@ -25,9 +28,11 @@ func NewClient(apiKey string) (*Client, error) {
 	}
 	u, _ := url.Parse(defaultBaseURL)
 	return &Client{
-		base:   u,
-		http:   &http.Client{Timeout: 15 * time.Second},
-		apiKey: apiKey,
+		base:          u,
+		http:          &http.Client{Timeout: 15 * time.Second},
+		apiKey:        apiKey,
+		userCache:     make(map[string]*User),
+		questionCache: make(map[string]*Question),
 	}, nil
 }
 
@@ -131,8 +136,9 @@ type UserRef struct {
 }
 
 type Reviewee struct {
-	ID   string  `json:"id"`
-	User UserRef `json:"user"`
+	ID      string  `json:"id"`
+	User    UserRef `json:"user"`
+	Reviews ListRef `json:"reviews"`
 }
 
 type revieweeListResponse struct {
@@ -188,4 +194,111 @@ func (c *Client) ListRevieweesByURL(ctx context.Context, listURL string) ([]Revi
 		return nil, err
 	}
 	return lr.Data, nil
+}
+
+// Reviews
+type QuestionRef struct {
+	ID string `json:"id"`
+}
+
+type ReviewResponse struct {
+	RatingString *string  `json:"ratingString"`
+	Rating       *float64 `json:"rating"`
+	Choices      []string `json:"choices"`
+	Comment      *string  `json:"comment"`
+}
+
+type Review struct {
+	ID         string `json:"id"`
+	ReviewType string `json:"reviewType"`
+	Reviewee   struct {
+		ID string `json:"id"`
+	} `json:"reviewee"`
+	Reviewer UserRef         `json:"reviewer"`
+	Question QuestionRef     `json:"question"`
+	Response *ReviewResponse `json:"response"`
+}
+
+type reviewListResponse struct {
+	Object       string   `json:"object"`
+	HasMore      bool     `json:"hasMore"`
+	EndingCursor any      `json:"endingCursor"`
+	Data         []Review `json:"data"`
+}
+
+func (c *Client) ListReviewsByURL(ctx context.Context, listURL string, limit int) ([]Review, error) {
+	// Resolve and append limit
+	full, err := c.resolve(listURL)
+	if err != nil {
+		return nil, err
+	}
+	u, err := url.Parse(full)
+	if err != nil {
+		return nil, err
+	}
+	q := u.Query()
+	if limit > 0 {
+		q.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	u.RawQuery = q.Encode()
+
+	req, err := c.newRequest(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	var lr reviewListResponse
+	if err := c.doJSON(req, &lr); err != nil {
+		return nil, err
+	}
+	return lr.Data, nil
+}
+
+// Single resource fetches with caching
+type Question struct {
+	ID   string `json:"id"`
+	Body string `json:"body"`
+}
+
+var mu sync.Mutex
+
+func (c *Client) GetUserByID(ctx context.Context, id string) (*User, error) {
+	mu.Lock()
+	if u, ok := c.userCache[id]; ok {
+		mu.Unlock()
+		return u, nil
+	}
+	mu.Unlock()
+	req, err := c.newRequest(ctx, http.MethodGet, "/v1/user/"+id, nil)
+	if err != nil {
+		return nil, err
+	}
+	var u User
+	if err := c.doJSON(req, &u); err != nil {
+		return nil, err
+	}
+	mu.Lock()
+	c.userCache[id] = &u
+	mu.Unlock()
+	return &u, nil
+}
+
+func (c *Client) GetQuestionByID(ctx context.Context, id string) (*Question, error) {
+	mu.Lock()
+	if qv, ok := c.questionCache[id]; ok {
+		mu.Unlock()
+		return qv, nil
+	}
+	mu.Unlock()
+	req, err := c.newRequest(ctx, http.MethodGet, "/v1/question/"+id, nil)
+	if err != nil {
+		return nil, err
+	}
+	var q Question
+	if err := c.doJSON(req, &q); err != nil {
+		return nil, err
+	}
+	mu.Lock()
+	c.questionCache[id] = &q
+	mu.Unlock()
+	return &q, nil
 }
