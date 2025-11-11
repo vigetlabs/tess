@@ -55,22 +55,22 @@ func (c *Client) newRequest(ctx context.Context, method, pathOrURL string, body 
 	if err != nil {
 		return nil, err
 	}
-    req.Header.Set("accept", "application/json")
-    // Prefer a Bearer token; allow preformatted values in config.
-    req.Header.Set("Authorization", c.authHeaderValue())
-    return req, nil
+	req.Header.Set("accept", "application/json")
+	// Prefer a Bearer token; allow preformatted values in config.
+	req.Header.Set("Authorization", c.authHeaderValue())
+	return req, nil
 }
 
 func (c *Client) authHeaderValue() string {
-    v := strings.TrimSpace(c.apiKey)
-    if v == "" {
-        return ""
-    }
-    lower := strings.ToLower(v)
-    if strings.HasPrefix(lower, "bearer ") || strings.HasPrefix(lower, "basic ") || strings.HasPrefix(lower, "token ") || strings.HasPrefix(lower, "lattice ") {
-        return v
-    }
-    return "Bearer " + v
+	v := strings.TrimSpace(c.apiKey)
+	if v == "" {
+		return ""
+	}
+	lower := strings.ToLower(v)
+	if strings.HasPrefix(lower, "bearer ") || strings.HasPrefix(lower, "basic ") || strings.HasPrefix(lower, "token ") || strings.HasPrefix(lower, "lattice ") {
+		return v
+	}
+	return "Bearer " + v
 }
 
 func (c *Client) doJSON(req *http.Request, v any) error {
@@ -111,6 +111,37 @@ type userListResponse struct {
 	Data         []User `json:"data"`
 }
 
+// Review cycles
+type ReviewCycle struct {
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	Reviewees ListRef `json:"reviewees"`
+}
+
+type reviewCycleListResponse struct {
+	Object       string        `json:"object"`
+	HasMore      bool          `json:"hasMore"`
+	EndingCursor any           `json:"endingCursor"`
+	Data         []ReviewCycle `json:"data"`
+}
+
+// Reviewees
+type UserRef struct {
+	ID string `json:"id"`
+}
+
+type Reviewee struct {
+	ID   string  `json:"id"`
+	User UserRef `json:"user"`
+}
+
+type revieweeListResponse struct {
+	Object       string     `json:"object"`
+	HasMore      bool       `json:"hasMore"`
+	EndingCursor any        `json:"endingCursor"`
+	Data         []Reviewee `json:"data"`
+}
+
 func (c *Client) GetMe(ctx context.Context) (*User, error) {
 	req, err := c.newRequest(ctx, http.MethodGet, "/v1/me", nil)
 	if err != nil {
@@ -129,6 +160,30 @@ func (c *Client) ListUsersByURL(ctx context.Context, listURL string) ([]User, er
 		return nil, err
 	}
 	var lr userListResponse
+	if err := c.doJSON(req, &lr); err != nil {
+		return nil, err
+	}
+	return lr.Data, nil
+}
+
+func (c *Client) ListReviewCycles(ctx context.Context) ([]ReviewCycle, error) {
+	req, err := c.newRequest(ctx, http.MethodGet, "/v1/reviewCycles", nil)
+	if err != nil {
+		return nil, err
+	}
+	var lr reviewCycleListResponse
+	if err := c.doJSON(req, &lr); err != nil {
+		return nil, err
+	}
+	return lr.Data, nil
+}
+
+func (c *Client) ListRevieweesByURL(ctx context.Context, listURL string) ([]Reviewee, error) {
+	req, err := c.newRequest(ctx, http.MethodGet, listURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	var lr revieweeListResponse
 	if err := c.doJSON(req, &lr); err != nil {
 		return nil, err
 	}

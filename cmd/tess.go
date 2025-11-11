@@ -1,19 +1,19 @@
 package main
 
 import (
-    "bufio"
-    "context"
-    "errors"
-    "flag"
-    "fmt"
-    "log"
-    "os"
-    "path/filepath"
-    "sort"
-    "strings"
+	"bufio"
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 
-    tea "github.com/charmbracelet/bubbletea"
-    api "tess/internal"
+	tea "github.com/charmbracelet/bubbletea"
+	api "tess/internal"
 )
 
 func defaultConfigPath() (string, error) {
@@ -113,71 +113,94 @@ func main() {
 		log.Fatalf("failed to fetch direct reports: %v", err)
 	}
 
-    names := make([]string, 0, len(reports))
-    for _, u := range reports {
-        if strings.TrimSpace(u.Name) != "" {
-            names = append(names, u.Name)
-        }
-    }
-    sort.Strings(names)
+	sort.Slice(reports, func(i, j int) bool { return strings.ToLower(reports[i].Name) < strings.ToLower(reports[j].Name) })
+	names := make([]string, 0, len(reports))
+	for _, u := range reports {
+		names = append(names, u.Name)
+	}
 
-    // Interactive selection: show list, print chosen name on Enter.
-    m := newListModel(names)
-    p := tea.NewProgram(m)
-    if _, err := p.Run(); err != nil {
-        log.Fatalf("tui error: %v", err)
-    }
-    if m.choice != "" {
-        fmt.Println(m.choice)
-    }
+	// Interactive selection: show list, print chosen name on Enter.
+	m := newListModel(names)
+	p := tea.NewProgram(m)
+	if _, err := p.Run(); err != nil {
+		log.Fatalf("tui error: %v", err)
+	}
+	if m.choice == "" || len(reports) == 0 {
+		return
+	}
+
+	// Find selected user's ID from cursor
+	selIdx := m.cursor
+	if selIdx < 0 || selIdx >= len(reports) {
+		return
+	}
+	selectedUserID := reports[selIdx].ID
+
+	cycles, err := client.ListReviewCycles(ctx)
+	if err != nil {
+		log.Fatalf("failed to fetch review cycles: %v", err)
+	}
+	for _, cy := range cycles {
+		reviewees, err := client.ListRevieweesByURL(ctx, cy.Reviewees.URL)
+		if err != nil {
+			// Skip cycles we can't read
+			continue
+		}
+		for _, rv := range reviewees {
+			if rv.User.ID == selectedUserID {
+				fmt.Println(cy.Name)
+				break
+			}
+		}
+	}
 }
 
 // --- Minimal Bubble Tea list model ---
 type listModel struct {
-    items  []string
-    cursor int
-    choice string
+	items  []string
+	cursor int
+	choice string
 }
 
 func newListModel(items []string) *listModel {
-    return &listModel{items: items}
+	return &listModel{items: items}
 }
 
 func (m *listModel) Init() tea.Cmd { return nil }
 
 func (m *listModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-    switch msg := msg.(type) {
-    case tea.KeyMsg:
-        switch msg.String() {
-        case "ctrl+c", "q":
-            return m, tea.Quit
-        case "up", "k":
-            if m.cursor > 0 {
-                m.cursor--
-            }
-        case "down", "j":
-            if m.cursor < len(m.items)-1 {
-                m.cursor++
-            }
-        case "enter":
-            if len(m.items) > 0 {
-                m.choice = m.items[m.cursor]
-            }
-            return m, tea.Quit
-        }
-    }
-    return m, nil
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q":
+			return m, tea.Quit
+		case "up", "k":
+			if m.cursor > 0 {
+				m.cursor--
+			}
+		case "down", "j":
+			if m.cursor < len(m.items)-1 {
+				m.cursor++
+			}
+		case "enter":
+			if len(m.items) > 0 {
+				m.choice = m.items[m.cursor]
+			}
+			return m, tea.Quit
+		}
+	}
+	return m, nil
 }
 
 func (m *listModel) View() string {
-    var b strings.Builder
-    b.WriteString("Select a user (↑/↓, Enter, q):\n\n")
-    for i, it := range m.items {
-        cursor := " "
-        if i == m.cursor {
-            cursor = ">"
-        }
-        fmt.Fprintf(&b, "%s %s\n", cursor, it)
-    }
-    return b.String()
+	var b strings.Builder
+	b.WriteString("Select a user (↑/↓, Enter, q):\n\n")
+	for i, it := range m.items {
+		cursor := " "
+		if i == m.cursor {
+			cursor = ">"
+		}
+		fmt.Fprintf(&b, "%s %s\n", cursor, it)
+	}
+	return b.String()
 }
