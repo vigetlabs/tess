@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	bubspinner "github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	api "tess/internal"
 )
@@ -34,27 +35,23 @@ func loadAPIKeyFromTOML(path string) (string, error) {
 		return "", err
 	}
 	defer f.Close()
-
 	var apiKey string
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Text()
-		// Strip comments and whitespace
 		if i := strings.Index(line, "#"); i >= 0 {
 			line = line[:i]
 		}
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "[") { // ignore sections
+		if line == "" || strings.HasPrefix(line, "[") {
 			continue
 		}
-		// Parse simple key = value pairs
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) != 2 {
 			continue
 		}
 		key := strings.TrimSpace(parts[0])
 		val := strings.TrimSpace(parts[1])
-		// Trim surrounding quotes if present
 		val = strings.Trim(val, " \t")
 		if len(val) >= 2 {
 			if (val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'') {
@@ -78,7 +75,6 @@ func loadAPIKeyFromTOML(path string) (string, error) {
 func main() {
 	cfgFlag := flag.String("config", "", "Path to config TOML (default: ~/.tess/config.toml)")
 	flag.Parse()
-
 	var cfgPath string
 	if *cfgFlag != "" {
 		cfgPath = *cfgFlag
@@ -104,47 +100,45 @@ func main() {
 	}
 
 	ctx := context.Background()
-	me, err := client.GetMe(ctx)
+	meAny, err := runWithSpinner(ctx, "Loading current user...", func(c context.Context) (any, error) { return client.GetMe(c) })
 	if err != nil {
 		log.Fatalf("failed to fetch current user: %v", err)
 	}
+	me := meAny.(*api.User)
 
-	reports, err := client.ListUsersByURL(ctx, me.DirectReports.URL)
+	reportsAny, err := runWithSpinner(ctx, "Loading direct reports...", func(c context.Context) (any, error) { return client.ListUsersByURL(c, me.DirectReports.URL) })
 	if err != nil {
 		log.Fatalf("failed to fetch direct reports: %v", err)
 	}
+	reports := reportsAny.([]api.User)
 
 	sort.Slice(reports, func(i, j int) bool { return strings.ToLower(reports[i].Name) < strings.ToLower(reports[j].Name) })
 	names := make([]string, 0, len(reports))
 	for _, u := range reports {
 		names = append(names, u.Name)
 	}
-
-	// Interactive selection: choose a report.
 	m := newListModel("Select a user", names)
-	p := tea.NewProgram(m)
-	if _, err := p.Run(); err != nil {
+	if _, err := tea.NewProgram(m).Run(); err != nil {
 		log.Fatalf("tui error: %v", err)
 	}
 	if m.choice == "" || len(reports) == 0 {
 		return
 	}
-
-	// Find selected user's ID from cursor
 	selIdx := m.cursor
 	if selIdx < 0 || selIdx >= len(reports) {
 		return
 	}
 	selectedUserID := reports[selIdx].ID
 
-	cycles, err := client.ListReviewCycles(ctx)
+	cyclesAny, err := runWithSpinner(ctx, "Loading review cycles...", func(c context.Context) (any, error) { return client.ListReviewCycles(c) })
 	if err != nil {
 		log.Fatalf("failed to fetch review cycles: %v", err)
 	}
+	cycles := cyclesAny.([]api.ReviewCycle)
+
 	type cycleEntry struct {
-		Name       string
-		ReviewsURL string
-		Cycle      api.ReviewCycle
+		Name, ReviewsURL string
+		Cycle            api.ReviewCycle
 	}
 	filtered := make([]cycleEntry, 0)
 	for _, cy := range cycles {
@@ -165,14 +159,12 @@ func main() {
 	}
 	sort.Slice(filtered, func(i, j int) bool { return strings.ToLower(filtered[i].Name) < strings.ToLower(filtered[j].Name) })
 
-	// Second-stage selection: pick a cycle
 	cycleNames := make([]string, len(filtered))
 	for i, ce := range filtered {
 		cycleNames[i] = ce.Name
 	}
 	m2 := newListModel("Select a cycle", cycleNames)
-	p2 := tea.NewProgram(m2)
-	if _, err := p2.Run(); err != nil {
+	if _, err := tea.NewProgram(m2).Run(); err != nil {
 		log.Fatalf("tui error: %v", err)
 	}
 	if m2.choice == "" {
@@ -183,26 +175,27 @@ func main() {
 		return
 	}
 
-	// Fetch reviews (limit=100) for this reviewee-in-cycle
-	reviews, err := client.ListReviewsByURL(ctx, filtered[idx].ReviewsURL, 100)
+	reviewsAny, err := runWithSpinner(ctx, "Fetching reviews for cycle: "+filtered[idx].Name+"...", func(c context.Context) (any, error) { return client.ListReviewsByURL(c, filtered[idx].ReviewsURL, 100) })
 	if err != nil {
 		log.Fatalf("failed to fetch reviews: %v", err)
 	}
+	reviews := reviewsAny.([]api.Review)
 
-	// Generate markdown file and exit
 	selectedUserName := reports[selIdx].Name
-	md, err := buildMarkdown(ctx, client, selectedUserName, filtered[idx].Name, reviews)
+	mdAny, err := runWithSpinner(ctx, "Generating markdown...", func(c context.Context) (any, error) {
+		return buildMarkdown(c, client, selectedUserName, filtered[idx].Name, reviews)
+	})
 	if err != nil {
 		log.Fatalf("build markdown failed: %v", err)
 	}
+	md := mdAny.(string)
 	fname := outputFileName(selectedUserName, filtered[idx].Name)
 	if err := os.WriteFile(fname, []byte(md), 0644); err != nil {
 		log.Fatalf("failed to write file: %v", err)
 	}
-	fmt.Println(fname)
+	fmt.Printf("Wrote %s\n", fname)
 }
 
-// --- Minimal Bubble Tea list model ---
 type listModel struct {
 	title  string
 	items  []string
@@ -213,9 +206,7 @@ type listModel struct {
 func newListModel(title string, items []string) *listModel {
 	return &listModel{title: title, items: items}
 }
-
 func (m *listModel) Init() tea.Cmd { return nil }
-
 func (m *listModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -239,13 +230,12 @@ func (m *listModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
-
 func (m *listModel) View() string {
 	var b strings.Builder
 	if m.title == "" {
 		m.title = "Select"
 	}
-	fmt.Fprintf(&b, "%s (↑/↓, Enter, q):\n\n", m.title)
+	fmt.Fprintf(&b, "\n%s (↑/↓, Enter, q):\n\n", m.title)
 	for i, it := range m.items {
 		cursor := " "
 		if i == m.cursor {
@@ -256,27 +246,21 @@ func (m *listModel) View() string {
 	return b.String()
 }
 
-// --- Markdown builder and helpers ---
 func buildMarkdown(ctx context.Context, c *api.Client, userName, cycleName string, reviews []api.Review) (string, error) {
-	// Group by review type and by question ID
 	peerByQ := make(map[string][]api.Review)
 	selfByQ := make(map[string][]api.Review)
-	qOrderPeer := make([]string, 0)
-	qOrderSelf := make([]string, 0)
-	seenPeer := make(map[string]bool)
-	seenSelf := make(map[string]bool)
+	qOrderPeer, qOrderSelf := make([]string, 0), make([]string, 0)
+	seenPeer, seenSelf := make(map[string]bool), make(map[string]bool)
 	for _, r := range reviews {
 		qid := r.Question.ID
 		switch strings.ToLower(r.ReviewType) {
 		case "self":
-			// Include self reviews even if unanswered; we'll render (no comment).
 			selfByQ[qid] = append(selfByQ[qid], r)
 			if !seenSelf[qid] {
 				qOrderSelf = append(qOrderSelf, qid)
 				seenSelf[qid] = true
 			}
 		default:
-			// For peers/others, include only if there's content.
 			if r.Response == nil {
 				continue
 			}
@@ -293,7 +277,6 @@ func buildMarkdown(ctx context.Context, c *api.Client, userName, cycleName strin
 	}
 
 	var b strings.Builder
-	// Title line with reviewee name and cycle name
 	fmt.Fprintf(&b, "# %s (%s)\n\n", userName, cycleName)
 	b.WriteString("## Peer Feedback\n\n")
 	for _, qid := range qOrderPeer {
@@ -363,7 +346,6 @@ func buildMarkdown(ctx context.Context, c *api.Client, userName, cycleName strin
 			b.WriteString("\n")
 		}
 	}
-	// Removed trailing divider
 	return b.String(), nil
 }
 
@@ -392,27 +374,18 @@ func outputFileName(userName, cycleName string) string {
 	if first == "" {
 		first = "user"
 	}
-	fname := fmt.Sprintf("%s_%s_%s.md", toSlug(first), toSlug(last), toSlug(cycleName))
-	return fname
+	return fmt.Sprintf("%s_%s_%s.md", toSlug(first), toSlug(last), toSlug(cycleName))
 }
 
-// sanitizeText converts HTML-ish input to readable plain text:
-// - Unescapes entities (e.g., &#39; -> ')
-// - Converts <br>, <br/>, <br /> to newlines; removes remaining tags
 func sanitizeText(s string) string {
 	if s == "" {
 		return s
 	}
 	s = html.UnescapeString(s)
-	// Normalize common break/paragraph tags to newlines
-	repls := []struct{ old, new string }{
-		{"<br>", "\n"}, {"<br/>", "\n"}, {"<br />", "\n"},
-		{"</p>", "\n"}, {"<p>", ""},
-	}
+	repls := []struct{ old, new string }{{"<br>", "\n"}, {"<br/>", "\n"}, {"<br />", "\n"}, {"</p>", "\n"}, {"<p>", ""}}
 	for _, r := range repls {
 		s = strings.ReplaceAll(s, r.old, r.new)
 	}
-	// Strip any remaining tags
 	var b strings.Builder
 	inTag := false
 	for _, r := range s {
@@ -429,10 +402,52 @@ func sanitizeText(s string) string {
 			}
 		}
 	}
-	// Trim trailing spaces on lines
 	outLines := make([]string, 0)
 	for _, line := range strings.Split(b.String(), "\n") {
 		outLines = append(outLines, strings.TrimRight(line, " \t"))
 	}
 	return strings.TrimSpace(strings.Join(outLines, "\n"))
+}
+
+type doneMsg struct {
+	result any
+	err    error
+}
+type spinModel struct {
+	sp     bubspinner.Model
+	title  string
+	work   func(context.Context) (any, error)
+	ctx    context.Context
+	result any
+	err    error
+}
+
+func newSpinModel(ctx context.Context, title string, fn func(context.Context) (any, error)) *spinModel {
+	s := bubspinner.New()
+	s.Spinner = bubspinner.Line
+	return &spinModel{sp: s, title: title, work: fn, ctx: ctx}
+}
+func (m *spinModel) Init() tea.Cmd {
+	run := func() tea.Msg { res, err := m.work(m.ctx); return doneMsg{result: res, err: err} }
+	return tea.Batch(m.sp.Tick, run)
+}
+func (m *spinModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch dm := msg.(type) {
+	case doneMsg:
+		m.result, m.err = dm.result, dm.err
+		return m, tea.Quit
+	default:
+		var cmd tea.Cmd
+		m.sp, cmd = m.sp.Update(msg)
+		return m, cmd
+	}
+}
+func (m *spinModel) View() string { return fmt.Sprintf("\n%s %s\n", m.sp.View(), m.title) }
+func runWithSpinner(ctx context.Context, title string, fn func(context.Context) (any, error)) (any, error) {
+	m := newSpinModel(ctx, title, fn)
+	p := tea.NewProgram(m)
+	if _, err := p.Run(); err != nil {
+		return nil, err
+	}
+	return m.result, m.err
 }
