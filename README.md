@@ -16,6 +16,12 @@ Tess is a small CLI that pulls review information from the Lattice API and helps
 - Build: `make`
 - Run: `./bin/tess`
 
+### Releases
+
+- Tags drive releases. Create a tag like `v1.2.3` and push it; GitHub Actions runs GoReleaser to build macOS binaries for arm64 and amd64 and attach zipped artifacts to the release.
+- Artifacts are named `tess_darwin_<arch>_v<version>.zip` with a checksums file.
+- Version info is baked into the binary via ldflags and defaults to `dev` for non-release builds.
+
 ## Configuration
 
 - Tess looks for a TOML file containing an API key.

@@ -1,0 +1,33 @@
+version: 2
+
+project_name: tess
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: tess
+    main: ./cmd
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin]
+    goarch: [arm64]
+    ldflags:
+      - -s -w -X tess/internal.Version={{.Version}}
+
+archives:
+  - id: archive
+    ids: [tess]
+    formats: ['zip']
+    name_template: '{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}_v{{ .Version }}'
+    files:
+      - README.md
+      - LICENSE*
+
+checksum:
+  name_template: 'checksums_v{{ .Version }}.txt'
+
+release:
+  draft: false
+  prerelease: false
