@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Check formatting
+        run: |
+          files=$(gofmt -s -l $(git ls-files "*.go"))
+          if [ -n "$files" ]; then
+            echo "The following files are not gofmt-formatted:" >&2
+            echo "$files" >&2
+            echo "Run: gofmt -s -w ." >&2
+            exit 1
+          fi
+
+      - name: Build
+        run: make build
+
