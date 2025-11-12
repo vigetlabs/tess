@@ -243,7 +243,8 @@ func main() {
 		if err := api.HasPandoc(); err != nil {
 			fmt.Fprintln(os.Stderr, "pandoc not found; skipping Drive upload via rclone. Install pandoc to enable document export.")
 		} else {
-			docTitle := fmt.Sprintf("%s (%s)", selectedUserName, filtered[idx].Name)
+			// Uploaded Drive document title: use only the review cycle for context clarity
+			docTitle := filtered[idx].Name
 			// Determine remote: CLI flag overrides config when explicitly provided
 			remoteName := *rcloneRemote
 			explicitRemoteFlag := false
