@@ -20,8 +20,11 @@ import (
 )
 
 type fileConfig struct {
-	APIKey       string
-	RcloneRemote string
+	APIKey           string
+	RcloneRemote     string
+	TemplateHubID    string
+	TemplateCoverID  string
+	TemplateReviewID string
 }
 
 func defaultConfigPath() (string, error) {
@@ -69,6 +72,12 @@ func loadConfigFromTOML(path string) (fileConfig, error) {
 			cfg.APIKey = val
 		case "rclone_remote":
 			cfg.RcloneRemote = strings.TrimSpace(val)
+		case "template_hub_id":
+			cfg.TemplateHubID = strings.TrimSpace(val)
+		case "template_cover_id":
+			cfg.TemplateCoverID = strings.TrimSpace(val)
+		case "template_review_id":
+			cfg.TemplateReviewID = strings.TrimSpace(val)
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -86,6 +95,10 @@ func main() {
 	rcloneFolderID := flag.String("rclone-folder-id", "", "Google Drive folder ID; if set, upload via rclone to this folder")
 	uploadFormat := flag.String("upload-format", "docx", "Upload format when using rclone: docx (Google Doc import) or pdf")
 	pdfEngine := flag.String("pdf-engine", "", "Preferred PDF engine for pandoc (e.g., tectonic, xelatex). Leave empty for auto.")
+	copyTemplates := flag.Bool("copy-templates", false, "Copy template docs into the Drive folder after export")
+	templateHubID := flag.String("template-hub-id", "1HU2Jm_JLaLOLPR6V6HjPI4VzwzZRw_OCOvsT3rC_8G0", "Google Doc file ID for the Hub template")
+	templateCoverID := flag.String("template-cover-id", "1vX9gElaEXkQYReZTEb1151x1JnYDSw64eObiWjS7Sp4", "Google Doc file ID for the Cover template")
+	templateReviewID := flag.String("template-review-id", "1OLd7jgwsoKSFiTsiWtOjw9k_c9BfNhx0XRFdMYDaLP0", "Google Doc file ID for the Review template")
 	flag.Parse()
 	var cfgPath string
 	if *cfgFlag != "" {
@@ -304,6 +317,77 @@ func main() {
 	if strings.TrimSpace(uploadedURL) != "" {
 		fmt.Printf("Uploaded %s\n", uploadedURL)
 	}
+
+	// Optionally copy templates into the Drive folder
+	if *copyTemplates {
+		if strings.TrimSpace(*rcloneFolderID) == "" {
+			fmt.Fprintln(os.Stderr, "--copy-templates requires --rclone-folder-id to be set")
+		} else if _, err := exec.LookPath("rclone"); err != nil {
+			fmt.Fprintln(os.Stderr, "rclone not found; cannot copy templates")
+		} else {
+			remoteName := *rcloneRemote
+			explicitRemoteFlag := false
+			flag.Visit(func(f *flag.Flag) {
+				if f.Name == "rclone-remote" {
+					explicitRemoteFlag = true
+				}
+			})
+			if !explicitRemoteFlag && strings.TrimSpace(cfg.RcloneRemote) != "" {
+				remoteName = cfg.RcloneRemote
+			}
+
+			// Resolve template IDs: CLI overrides config if provided
+			th := strings.TrimSpace(*templateHubID)
+			tc := strings.TrimSpace(*templateCoverID)
+			tr := strings.TrimSpace(*templateReviewID)
+			if !flagIsSet("template-hub-id") && strings.TrimSpace(cfg.TemplateHubID) != "" {
+				th = cfg.TemplateHubID
+			}
+			if !flagIsSet("template-cover-id") && strings.TrimSpace(cfg.TemplateCoverID) != "" {
+				tc = cfg.TemplateCoverID
+			}
+			if !flagIsSet("template-review-id") && strings.TrimSpace(cfg.TemplateReviewID) != "" {
+				tr = cfg.TemplateReviewID
+			}
+
+			copies := []struct{ id, name string }{
+				{th, "Hub"}, {tc, "Cover"}, {tr, "Review"},
+			}
+			for _, cp := range copies {
+				if cp.id == "" {
+					continue
+				}
+				title := fmt.Sprintf("Copying template: %s...", cp.name)
+				_, err := runWithSpinner(ctx, title, func(c context.Context) (any, error) {
+					// Server-side copy by ID to destination folder FS, preserving original name.
+					dstFs := fmt.Sprintf("%s,root_folder_id=%s:", remoteName, *rcloneFolderID)
+					args := []string{"backend", "copyid", remoteName + ":", cp.id, dstFs, "--drive-server-side-across-configs"}
+					cmd := exec.CommandContext(c, "rclone", args...)
+					out, err := cmd.CombinedOutput()
+					if err != nil {
+						return nil, fmt.Errorf("rclone backend copyid failed: %v: %s", err, string(out))
+					}
+					return dstFs, nil
+				})
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "failed to copy template %s: %v\n", cp.name, err)
+					continue
+				}
+				// We keep the original name; link retrieval is skipped since name is unchanged.
+			}
+		}
+	}
+}
+
+// flagIsSet reports whether a flag with the given name was explicitly provided.
+func flagIsSet(name string) bool {
+	set := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			set = true
+		}
+	})
+	return set
 }
 
 type listModel struct {

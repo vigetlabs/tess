@@ -54,8 +54,28 @@ The interactive UI supports:
 - `--rclone-folder-id`: Google Drive folder ID. If present, Tess uploads the final report.
 - `--upload-format`: `docx` (default, imports as a Google Doc) or `pdf` (uploads a PDF file as-is).
 - `--pdf-engine`: Preferred PDF engine for pandoc (e.g., `tectonic`, `xelatex`). Leave empty for auto.
+- `--copy-templates`: After export, copies three Google Doc templates into the target Drive folder.
+- `--template-hub-id`, `--template-cover-id`, `--template-review-id`: Override the template file IDs (CLI flags override config values below).
 
 Config precedence: if `rclone_remote` is present in `config.toml`, Tess uses it unless the `--rclone-remote` flag is provided, in which case the flag wins.
+
+## Templates (optional)
+
+When `--copy-templates` is provided, Tess will copy three Google Doc templates into the specified Drive folder (requires `--rclone-folder-id`). Defaults are:
+
+- Hub: `1HU2Jm_JLaLOLPR6V6HjPI4VzwzZRw_OCOvsT3rC_8G0`
+- Cover: `1vX9gElaEXkQYReZTEb1151x1JnYDSw64eObiWjS7Sp4`
+- Review: `1OLd7jgwsoKSFiTsiWtOjw9k_c9BfNhx0XRFdMYDaLP0`
+
+You can override these via CLI flags or in `config.toml`:
+
+```
+template_hub_id = "<file_id>"
+template_cover_id = "<file_id>"
+template_review_id = "<file_id>"
+```
+
+Tess performs the copy using rclone’s Drive backend copy-by-ID into the folder specified by `--rclone-folder-id` and prints links to the copied docs.
 
 Notes:
 
