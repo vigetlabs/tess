@@ -9,6 +9,7 @@ import (
 	"html"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -74,6 +75,8 @@ func loadAPIKeyFromTOML(path string) (string, error) {
 
 func main() {
 	cfgFlag := flag.String("config", "", "Path to config TOML (default: ~/.tess/config.toml)")
+	rcloneRemote := flag.String("rclone-remote", "drive", "rclone remote name to upload to (default: drive)")
+	rcloneFolderID := flag.String("rclone-folder-id", "", "Google Drive folder ID; if set, upload via rclone to this folder")
 	flag.Parse()
 	var cfgPath string
 	if *cfgFlag != "" {
@@ -202,6 +205,33 @@ func main() {
 	fname := outputFileName(selectedUserName, filtered[idx].Name)
 	if err := os.WriteFile(fname, []byte(md), 0644); err != nil {
 		log.Fatalf("failed to write file: %v", err)
+	}
+	if strings.TrimSpace(*rcloneFolderID) != "" {
+		if _, err := exec.LookPath("rclone"); err != nil {
+			log.Fatalf("rclone not found in PATH; install from https://rclone.org")
+		}
+		destFolder := fmt.Sprintf("%s (%s)", selectedUserName, filtered[idx].Name)
+		fmt.Fprintln(os.Stderr)
+		_, err := runWithSpinner(ctx, "Uploading via rclone...", func(c context.Context) (any, error) {
+			args := []string{"copy", fname, fmt.Sprintf("%s:%s", *rcloneRemote, destFolder), "--drive-root-folder-id=" + *rcloneFolderID}
+			cmd := exec.CommandContext(c, "rclone", args...)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				return nil, fmt.Errorf("rclone copy failed: %v: %s", err, string(out))
+			}
+			return string(out), nil
+		})
+		if err != nil {
+			log.Fatalf("rclone upload failed: %v", err)
+		}
+		base := filepath.Base(fname)
+		linkArgs := []string{"link", fmt.Sprintf("%s:%s/%s", *rcloneRemote, destFolder, base), "--drive-root-folder-id=" + *rcloneFolderID}
+		if linkOut, err := exec.Command("rclone", linkArgs...).CombinedOutput(); err == nil {
+			ln := strings.TrimSpace(string(linkOut))
+			if ln != "" {
+				fmt.Printf("Drive URL: %s\n", ln)
+			}
+		}
 	}
 	fmt.Println()
 	fmt.Printf("Wrote %s\n", fname)
@@ -419,7 +449,9 @@ func sanitizeText(s string) string {
 	for _, line := range raw {
 		l := strings.TrimRight(line, " 	")
 		isBlank := strings.TrimSpace(l) == ""
-		if isBlank && prevBlank { continue }
+		if isBlank && prevBlank {
+			continue
+		}
 		compact = append(compact, l)
 		prevBlank = isBlank
 	}
