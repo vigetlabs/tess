@@ -1,4 +1,5 @@
 bin/
-
 test-config.toml
 .gocache
+*.md
+!README.md
