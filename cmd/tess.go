@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 
 	bubspinner "github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -96,6 +97,7 @@ func main() {
 	uploadFormat := flag.String("upload-format", "docx", "Upload format when using rclone: docx (Google Doc import) or pdf")
 	pdfEngine := flag.String("pdf-engine", "", "Preferred PDF engine for pandoc (e.g., tectonic, xelatex). Leave empty for auto.")
 	copyTemplates := flag.Bool("copy-templates", false, "Copy template docs into the Drive folder after export")
+	censorFlag := flag.Bool("censor", false, "Censor reviewer names, scores, and quotes in the output")
 	templateHubID := flag.String("template-hub-id", "1HU2Jm_JLaLOLPR6V6HjPI4VzwzZRw_OCOvsT3rC_8G0", "Google Doc file ID for the Hub template")
 	templateCoverID := flag.String("template-cover-id", "1vX9gElaEXkQYReZTEb1151x1JnYDSw64eObiWjS7Sp4", "Google Doc file ID for the Cover template")
 	templateReviewID := flag.String("template-review-id", "1OLd7jgwsoKSFiTsiWtOjw9k_c9BfNhx0XRFdMYDaLP0", "Google Doc file ID for the Review template")
@@ -219,7 +221,7 @@ func main() {
 
 	selectedUserName := reports[selIdx].Name
 	mdAny, err := runWithSpinner(ctx, "Generating markdown...", func(c context.Context) (any, error) {
-		return buildMarkdown(c, client, selectedUserName, filtered[idx].Name, reviews)
+		return buildMarkdown(c, client, selectedUserName, filtered[idx].Name, reviews, *censorFlag)
 	})
 	if err != nil {
 		log.Fatalf("build markdown failed: %v", err)
@@ -440,7 +442,21 @@ func (m *listModel) View() string {
 	return b.String()
 }
 
-func buildMarkdown(ctx context.Context, c *api.Client, userName, cycleName string, reviews []api.Review) (string, error) {
+func buildMarkdown(ctx context.Context, c *api.Client, userName, cycleName string, reviews []api.Review, censor bool) (string, error) {
+	mask := func(s string) string {
+		if !censor {
+			return s
+		}
+		var b strings.Builder
+		for _, r := range s {
+			if unicode.IsSpace(r) {
+				b.WriteRune(r)
+			} else {
+				b.WriteRune('▒')
+			}
+		}
+		return b.String()
+	}
 	peerByQ := make(map[string][]api.Review)
 	selfByQ := make(map[string][]api.Review)
 	qOrderPeer, qOrderSelf := make([]string, 0), make([]string, 0)
@@ -495,9 +511,9 @@ func buildMarkdown(ctx context.Context, c *api.Client, userName, cycleName strin
 				score = fmt.Sprintf("%.2f", *r.Response.Rating)
 			}
 			if score != "" {
-				fmt.Fprintf(&b, "%s (score: %s):\n\n", name, score)
+				fmt.Fprintf(&b, "%s (score: %s):\n\n", mask(name), mask(score))
 			} else {
-				fmt.Fprintf(&b, "%s:\n\n", name)
+				fmt.Fprintf(&b, "%s:\n\n", mask(name))
 			}
 			quote := ""
 			if r.Response.Comment != nil && strings.TrimSpace(*r.Response.Comment) != "" {
@@ -508,7 +524,7 @@ func buildMarkdown(ctx context.Context, c *api.Client, userName, cycleName strin
 			if strings.TrimSpace(quote) == "" {
 				quote = "(no comment)"
 			}
-			for _, line := range strings.Split(quote, "\n") {
+			for _, line := range strings.Split(mask(quote), "\n") {
 				fmt.Fprintf(&b, "> %s\n", line)
 			}
 			b.WriteString("\n")
@@ -534,7 +550,7 @@ func buildMarkdown(ctx context.Context, c *api.Client, userName, cycleName strin
 			if strings.TrimSpace(quote) == "" {
 				quote = "(no comment)"
 			}
-			for _, line := range strings.Split(quote, "\n") {
+			for _, line := range strings.Split(mask(quote), "\n") {
 				fmt.Fprintf(&b, "> %s\n", line)
 			}
 			b.WriteString("\n")

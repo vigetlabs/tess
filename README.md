@@ -56,6 +56,7 @@ The interactive UI supports:
 - `--pdf-engine`: Preferred PDF engine for pandoc (e.g., `tectonic`, `xelatex`). Leave empty for auto.
 - `--copy-templates`: After export, copies three Google Doc templates into the target Drive folder.
 - `--template-hub-id`, `--template-cover-id`, `--template-review-id`: Override the template file IDs (CLI flags override config values below).
+- `--censor`: Mask reviewer names, scores, and quote content with `▒` while preserving whitespace and structure.
 
 Config precedence: if `rclone_remote` is present in `config.toml`, Tess uses it unless the `--rclone-remote` flag is provided, in which case the flag wins.
 
