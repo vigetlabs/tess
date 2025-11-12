@@ -141,19 +141,27 @@ func main() {
 		Name, ReviewsURL string
 		Cycle            api.ReviewCycle
 	}
-	filtered := make([]cycleEntry, 0)
-	for _, cy := range cycles {
-		reviewees, err := client.ListRevieweesByURL(ctx, cy.Reviewees.URL)
-		if err != nil {
-			continue
-		}
-		for _, rv := range reviewees {
-			if rv.User.ID == selectedUserID {
-				filtered = append(filtered, cycleEntry{Name: cy.Name, ReviewsURL: rv.Reviews.URL, Cycle: cy})
-				break
+	// Show a spinner while filtering cycles down to those that include the selected user
+	filteredAny, err := runWithSpinner(ctx, fmt.Sprintf("Filtering cycles for %s...", reports[selIdx].Name), func(c context.Context) (any, error) {
+		out := make([]cycleEntry, 0)
+		for _, cy := range cycles {
+			reviewees, err := client.ListRevieweesByURL(c, cy.Reviewees.URL)
+			if err != nil {
+				continue
+			}
+			for _, rv := range reviewees {
+				if rv.User.ID == selectedUserID {
+					out = append(out, cycleEntry{Name: cy.Name, ReviewsURL: rv.Reviews.URL, Cycle: cy})
+					break
+				}
 			}
 		}
+		return out, nil
+	})
+	if err != nil {
+		log.Fatalf("failed to filter review cycles: %v", err)
 	}
+	filtered := filteredAny.([]cycleEntry)
 	if len(filtered) == 0 {
 		fmt.Fprintln(os.Stderr, "no cycles found for selected user")
 		return
