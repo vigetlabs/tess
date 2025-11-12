@@ -208,6 +208,7 @@ func main() {
 	if err := os.WriteFile(fname, []byte(md), 0644); err != nil {
 		log.Fatalf("failed to write file: %v", err)
 	}
+	uploadedURL := ""
 	if strings.TrimSpace(*rcloneFolderID) != "" {
 		if _, err := exec.LookPath("rclone"); err != nil {
 			log.Fatalf("rclone not found in PATH; install from https://rclone.org")
@@ -231,7 +232,6 @@ func main() {
 				if err != nil {
 					log.Fatalf("pandoc conversion failed: %v", err)
 				}
-				fmt.Fprintln(os.Stderr)
 				// Upload as a regular PDF file (no import)
 				_, err = runWithSpinner(ctx, "Uploading PDF via rclone...", func(c context.Context) (any, error) {
 					dest := fmt.Sprintf("%s:%s.pdf", *rcloneRemote, docTitle)
@@ -249,7 +249,7 @@ func main() {
 				linkArgs := []string{"link", fmt.Sprintf("%s:%s.pdf", *rcloneRemote, docTitle), "--drive-root-folder-id=" + *rcloneFolderID}
 				if linkOut, err := exec.Command("rclone", linkArgs...).CombinedOutput(); err == nil {
 					if ln := strings.TrimSpace(string(linkOut)); ln != "" {
-						fmt.Printf("Drive URL: %s\n", ln)
+						uploadedURL = ln
 					}
 				}
 			} else {
@@ -258,7 +258,6 @@ func main() {
 				if err != nil {
 					log.Fatalf("pandoc conversion failed: %v", err)
 				}
-				fmt.Fprintln(os.Stderr)
 				_, err = runWithSpinner(ctx, "Uploading via rclone...", func(c context.Context) (any, error) {
 					args := []string{"copyto", docxPath, fmt.Sprintf("%s:%s", *rcloneRemote, docTitle), "--drive-root-folder-id=" + *rcloneFolderID, "--drive-import-formats", "docx"}
 					cmd := exec.CommandContext(c, "rclone", args...)
@@ -274,7 +273,7 @@ func main() {
 				linkArgs := []string{"link", fmt.Sprintf("%s:%s", *rcloneRemote, docTitle), "--drive-root-folder-id=" + *rcloneFolderID}
 				if linkOut, err := exec.Command("rclone", linkArgs...).CombinedOutput(); err == nil {
 					if ln := strings.TrimSpace(string(linkOut)); ln != "" {
-						fmt.Printf("Drive URL: %s\n", ln)
+						uploadedURL = ln
 					}
 				}
 			}
@@ -283,6 +282,9 @@ func main() {
 
 	fmt.Println()
 	fmt.Printf("Wrote %s\n", fname)
+	if strings.TrimSpace(uploadedURL) != "" {
+		fmt.Printf("Uploaded %s\n", uploadedURL)
+	}
 }
 
 type listModel struct {
