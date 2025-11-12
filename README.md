@@ -26,6 +26,8 @@ Example `~/.tess/config.toml`:
 
 ```
 api_key = "Bearer <your_lattice_api_key>"
+# Optional: default rclone remote name (CLI flag overrides)
+rclone_remote = "drive"
 ```
 
 Note: If your key is not prefixed, Tess will add `Bearer ` automatically.
@@ -52,6 +54,8 @@ The interactive UI supports:
 - `--rclone-folder-id`: Google Drive folder ID. If present, Tess uploads the final report.
 - `--upload-format`: `docx` (default, imports as a Google Doc) or `pdf` (uploads a PDF file as-is).
 - `--pdf-engine`: Preferred PDF engine for pandoc (e.g., `tectonic`, `xelatex`). Leave empty for auto.
+
+Config precedence: if `rclone_remote` is present in `config.toml`, Tess uses it unless the `--rclone-remote` flag is provided, in which case the flag wins.
 
 Notes:
 

@@ -19,6 +19,11 @@ import (
 	api "tess/internal"
 )
 
+type fileConfig struct {
+	APIKey       string
+	RcloneRemote string
+}
+
 func defaultConfigPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -27,16 +32,16 @@ func defaultConfigPath() (string, error) {
 	return filepath.Join(home, ".tess", "config.toml"), nil
 }
 
-func loadAPIKeyFromTOML(path string) (string, error) {
+func loadConfigFromTOML(path string) (fileConfig, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("config file not found: %s", path)
+			return fileConfig{}, fmt.Errorf("config file not found: %s", path)
 		}
-		return "", err
+		return fileConfig{}, err
 	}
 	defer f.Close()
-	var apiKey string
+	var cfg fileConfig
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -59,18 +64,20 @@ func loadAPIKeyFromTOML(path string) (string, error) {
 				val = val[1 : len(val)-1]
 			}
 		}
-		if key == "api_key" {
-			apiKey = val
-			break
+		switch key {
+		case "api_key":
+			cfg.APIKey = val
+		case "rclone_remote":
+			cfg.RcloneRemote = strings.TrimSpace(val)
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return "", err
+		return fileConfig{}, err
 	}
-	if strings.TrimSpace(apiKey) == "" {
-		return "", fmt.Errorf("missing 'api_key' in config: %s", path)
+	if strings.TrimSpace(cfg.APIKey) == "" {
+		return fileConfig{}, fmt.Errorf("missing 'api_key' in config: %s", path)
 	}
-	return apiKey, nil
+	return cfg, nil
 }
 
 func main() {
@@ -92,11 +99,12 @@ func main() {
 		}
 	}
 
-	apiKey, err := loadAPIKeyFromTOML(cfgPath)
+	cfg, err := loadConfigFromTOML(cfgPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
+	apiKey := cfg.APIKey
 
 	client, err := api.NewClient(apiKey)
 	if err != nil {
@@ -222,6 +230,17 @@ func main() {
 			fmt.Fprintln(os.Stderr, "pandoc not found; skipping Drive upload via rclone. Install pandoc to enable document export.")
 		} else {
 			docTitle := fmt.Sprintf("%s (%s)", selectedUserName, filtered[idx].Name)
+			// Determine remote: CLI flag overrides config when explicitly provided
+			remoteName := *rcloneRemote
+			explicitRemoteFlag := false
+			flag.Visit(func(f *flag.Flag) {
+				if f.Name == "rclone-remote" {
+					explicitRemoteFlag = true
+				}
+			})
+			if !explicitRemoteFlag && strings.TrimSpace(cfg.RcloneRemote) != "" {
+				remoteName = cfg.RcloneRemote
+			}
 			if fmtStr == "pdf" {
 				pdfPath := filepath.Join(os.TempDir(), docTitle+".pdf")
 				// Force a specific engine if provided; tectonic is preferred for LaTeX flow and sans font support.
@@ -234,7 +253,7 @@ func main() {
 				}
 				// Upload as a regular PDF file (no import)
 				_, err = runWithSpinner(ctx, "Uploading PDF via rclone...", func(c context.Context) (any, error) {
-					dest := fmt.Sprintf("%s:%s.pdf", *rcloneRemote, docTitle)
+					dest := fmt.Sprintf("%s:%s.pdf", remoteName, docTitle)
 					args := []string{"copyto", pdfPath, dest, "--drive-root-folder-id=" + *rcloneFolderID}
 					cmd := exec.CommandContext(c, "rclone", args...)
 					out, err := cmd.CombinedOutput()
@@ -246,7 +265,7 @@ func main() {
 				if err != nil {
 					log.Fatalf("rclone upload failed: %v", err)
 				}
-				linkArgs := []string{"link", fmt.Sprintf("%s:%s.pdf", *rcloneRemote, docTitle), "--drive-root-folder-id=" + *rcloneFolderID}
+				linkArgs := []string{"link", fmt.Sprintf("%s:%s.pdf", remoteName, docTitle), "--drive-root-folder-id=" + *rcloneFolderID}
 				if linkOut, err := exec.Command("rclone", linkArgs...).CombinedOutput(); err == nil {
 					if ln := strings.TrimSpace(string(linkOut)); ln != "" {
 						uploadedURL = ln
@@ -259,7 +278,7 @@ func main() {
 					log.Fatalf("pandoc conversion failed: %v", err)
 				}
 				_, err = runWithSpinner(ctx, "Uploading via rclone...", func(c context.Context) (any, error) {
-					args := []string{"copyto", docxPath, fmt.Sprintf("%s:%s", *rcloneRemote, docTitle), "--drive-root-folder-id=" + *rcloneFolderID, "--drive-import-formats", "docx"}
+					args := []string{"copyto", docxPath, fmt.Sprintf("%s:%s", remoteName, docTitle), "--drive-root-folder-id=" + *rcloneFolderID, "--drive-import-formats", "docx"}
 					cmd := exec.CommandContext(c, "rclone", args...)
 					out, err := cmd.CombinedOutput()
 					if err != nil {
@@ -270,7 +289,7 @@ func main() {
 				if err != nil {
 					log.Fatalf("rclone upload failed: %v", err)
 				}
-				linkArgs := []string{"link", fmt.Sprintf("%s:%s", *rcloneRemote, docTitle), "--drive-root-folder-id=" + *rcloneFolderID}
+				linkArgs := []string{"link", fmt.Sprintf("%s:%s", remoteName, docTitle), "--drive-root-folder-id=" + *rcloneFolderID}
 				if linkOut, err := exec.Command("rclone", linkArgs...).CombinedOutput(); err == nil {
 					if ln := strings.TrimSpace(string(linkOut)); ln != "" {
 						uploadedURL = ln
