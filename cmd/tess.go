@@ -130,6 +130,7 @@ func main() {
 	}
 	selectedUserID := reports[selIdx].ID
 
+	fmt.Fprintln(os.Stderr)
 	cyclesAny, err := runWithSpinner(ctx, "Loading review cycles...", func(c context.Context) (any, error) { return client.ListReviewCycles(c) })
 	if err != nil {
 		log.Fatalf("failed to fetch review cycles: %v", err)
@@ -175,6 +176,7 @@ func main() {
 		return
 	}
 
+	fmt.Fprintln(os.Stderr)
 	reviewsAny, err := runWithSpinner(ctx, "Fetching reviews for cycle: "+filtered[idx].Name+"...", func(c context.Context) (any, error) { return client.ListReviewsByURL(c, filtered[idx].ReviewsURL, 100) })
 	if err != nil {
 		log.Fatalf("failed to fetch reviews: %v", err)
@@ -193,6 +195,7 @@ func main() {
 	if err := os.WriteFile(fname, []byte(md), 0644); err != nil {
 		log.Fatalf("failed to write file: %v", err)
 	}
+	fmt.Println()
 	fmt.Printf("Wrote %s\n", fname)
 }
 
@@ -424,7 +427,7 @@ type spinModel struct {
 
 func newSpinModel(ctx context.Context, title string, fn func(context.Context) (any, error)) *spinModel {
 	s := bubspinner.New()
-	s.Spinner = bubspinner.Line
+	s.Spinner = bubspinner.Pulse
 	return &spinModel{sp: s, title: title, work: fn, ctx: ctx}
 }
 func (m *spinModel) Init() tea.Cmd {
@@ -442,12 +445,14 @@ func (m *spinModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 }
-func (m *spinModel) View() string { return fmt.Sprintf("\n%s %s\n", m.sp.View(), m.title) }
+func (m *spinModel) View() string { return fmt.Sprintf("%s %s", m.sp.View(), m.title) }
 func runWithSpinner(ctx context.Context, title string, fn func(context.Context) (any, error)) (any, error) {
 	m := newSpinModel(ctx, title, fn)
 	p := tea.NewProgram(m)
 	if _, err := p.Run(); err != nil {
 		return nil, err
 	}
+	// Persist a final line so history remains
+	fmt.Fprintf(os.Stderr, "✓ %s\n", title)
 	return m.result, m.err
 }
