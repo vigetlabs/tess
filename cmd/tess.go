@@ -210,29 +210,32 @@ func main() {
 		if _, err := exec.LookPath("rclone"); err != nil {
 			log.Fatalf("rclone not found in PATH; install from https://rclone.org")
 		}
-		destFolder := fmt.Sprintf("%s (%s)", selectedUserName, filtered[idx].Name)
-		fmt.Fprintln(os.Stderr)
-		_, err := runWithSpinner(ctx, "Uploading via rclone...", func(c context.Context) (any, error) {
-			args := []string{"copy", fname, fmt.Sprintf("%s:%s", *rcloneRemote, destFolder), "--drive-root-folder-id=" + *rcloneFolderID}
-			cmd := exec.CommandContext(c, "rclone", args...)
-			out, err := cmd.CombinedOutput()
-			if err != nil {
-				return nil, fmt.Errorf("rclone copy failed: %v: %s", err, string(out))
-			}
-			return string(out), nil
-		})
-		if err != nil {
-			log.Fatalf("rclone upload failed: %v", err)
-		}
-		base := filepath.Base(fname)
-		linkArgs := []string{"link", fmt.Sprintf("%s:%s/%s", *rcloneRemote, destFolder, base), "--drive-root-folder-id=" + *rcloneFolderID}
-		if linkOut, err := exec.Command("rclone", linkArgs...).CombinedOutput(); err == nil {
-			ln := strings.TrimSpace(string(linkOut))
-			if ln != "" {
-				fmt.Printf("Drive URL: %s\n", ln)
-			}
-		}
-	}
+		// Convert Markdown to DOCX via pandoc if available; otherwise skip upload
+        if _, err := exec.LookPath("pandoc"); err != nil {
+            fmt.Fprintln(os.Stderr, "pandoc not found; skipping Drive upload via rclone. Install pandoc to enable doc upload.")
+            docTitle := fmt.Sprintf("%s (%s)", selectedUserName, filtered[idx].Name)
+            docxPath := filepath.Join(os.TempDir(), docTitle+".docx")
+            _, err := runWithSpinner(ctx, "Converting to DOCX...", func(c context.Context) (any, error) {
+                args := []string{"-f", "gfm", "-t", "docx", "-o", docxPath, "--metadata=title:" + docTitle, fname}
+                cmd := exec.CommandContext(c, "pandoc", args...)
+                out, err := cmd.CombinedOutput()
+                if err != nil { return nil, fmt.Errorf("pandoc failed: %v: %s", err, string(out)) }
+                return string(out), nil
+            })
+            if err != nil { log.Fatalf("pandoc conversion failed: %v", err) }
+            fmt.Fprintln(os.Stderr)
+            _, err = runWithSpinner(ctx, "Uploading via rclone...", func(c context.Context) (any, error) {
+                args := []string{"copyto", docxPath, fmt.Sprintf("%s:%s", *rcloneRemote, docTitle), "--drive-root-folder-id=" + *rcloneFolderID, "--drive-import-formats", "docx"}
+                cmd := exec.CommandContext(c, "rclone", args...)
+                out, err := cmd.CombinedOutput()
+                if err != nil { return nil, fmt.Errorf("rclone copyto failed: %v: %s", err, string(out)) }
+                return string(out), nil
+            })
+            if err != nil { log.Fatalf("rclone upload failed: %v", err) }
+            linkArgs := []string{"link", fmt.Sprintf("%s:%s", *rcloneRemote, docTitle), "--drive-root-folder-id=" + *rcloneFolderID}
+            if linkOut, err := exec.Command("rclone", linkArgs...).CombinedOutput(); err == nil {
+                if ln := strings.TrimSpace(string(linkOut)); ln != "" { fmt.Printf("Drive URL: %s\n", ln) }
+    
 	fmt.Println()
 	fmt.Printf("Wrote %s\n", fname)
 }
@@ -501,4 +504,40 @@ func runWithSpinner(ctx context.Context, title string, fn func(context.Context) 
 	// Persist a final line so history remains
 	fmt.Fprintf(os.Stderr, "✓ %s\n", title)
 	return m.result, m.err
+}
+
+
+// buildHTMLDocument wraps Markdown content in minimal HTML for Drive import.
+
+
+// buildHTMLDocument wraps Markdown content in minimal HTML for Drive import.
+func buildHTMLDocument(title, md string) string {
+    var b strings.Builder
+    fmt.Fprintf(&b, "<!doctype html><html><head><meta charset=\"utf-8\"><title>%s</title></head><body>\n", html.EscapeString(title))
+    b.WriteString(markdownToBasicHTML(md))
+    b.WriteString("\n</body></html>")
+    return b.String()
+}
+
+// markdownToBasicHTML converts a subset of our Markdown to simple HTML suitable for Drive import.
+func markdownToBasicHTML(md string) string {
+    lines := strings.Split(md, "\n")
+    var b strings.Builder
+    para := func(s string) {
+        if strings.TrimSpace(s) != "" {
+            fmt.Fprintf(&b, "<p>%s</p>\n", html.EscapeString(s))
+        }
+    }
+    var acc []string
+    flush := func() { if len(acc) > 0 { para(strings.Join(acc, " ")) ; acc = nil } }
+    for _, ln := range lines {
+        if strings.HasPrefix(ln, "# ") { flush(); fmt.Fprintf(&b, "<h1>%s</h1>\n", html.EscapeString(strings.TrimSpace(ln[2:]))) ; continue }
+        if strings.HasPrefix(ln, "## ") { flush(); fmt.Fprintf(&b, "<h2>%s</h2>\n", html.EscapeString(strings.TrimSpace(ln[3:]))) ; continue }
+        if strings.HasPrefix(ln, "### ") { flush(); fmt.Fprintf(&b, "<h3>%s</h3>\n", html.EscapeString(strings.TrimSpace(ln[4:]))) ; continue }
+        if strings.HasPrefix(ln, "> ") { flush(); fmt.Fprintf(&b, "<blockquote>%s</blockquote>\n", html.EscapeString(strings.TrimSpace(strings.TrimPrefix(ln, "> ")))) ; continue }
+        if strings.TrimSpace(ln) == "" { flush(); continue }
+        acc = append(acc, ln)
+    }
+    flush()
+    return b.String()
 }
