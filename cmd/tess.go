@@ -413,11 +413,17 @@ func sanitizeText(s string) string {
 			}
 		}
 	}
-	outLines := make([]string, 0)
-	for _, line := range strings.Split(b.String(), "\n") {
-		outLines = append(outLines, strings.TrimRight(line, " \t"))
+	raw := strings.Split(b.String(), "\n")
+	compact := make([]string, 0, len(raw))
+	prevBlank := false
+	for _, line := range raw {
+		l := strings.TrimRight(line, " 	")
+		isBlank := strings.TrimSpace(l) == ""
+		if isBlank && prevBlank { continue }
+		compact = append(compact, l)
+		prevBlank = isBlank
 	}
-	return strings.TrimSpace(strings.Join(outLines, "\n"))
+	return strings.TrimSpace(strings.Join(compact, "\n"))
 }
 
 type doneMsg struct {
