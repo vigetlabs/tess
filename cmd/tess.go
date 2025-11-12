@@ -217,7 +217,8 @@ func main() {
 				docTitle := fmt.Sprintf("%s (%s)", selectedUserName, filtered[idx].Name)
 				docxPath := filepath.Join(os.TempDir(), docTitle+".docx")
 				_, err := runWithSpinner(ctx, "Converting to DOCX...", func(c context.Context) (any, error) {
-					args := []string{"-f", "gfm", "-t", "docx", "-o", docxPath, "--metadata=title:" + docTitle, fname}
+					// Avoid duplicate titles: keep H1 in Markdown and set Drive name via rclone
+					args := []string{"-f", "gfm", "-t", "docx", "-o", docxPath, fname}
 					cmd := exec.CommandContext(c, "pandoc", args...)
 					out, err := cmd.CombinedOutput()
 					if err != nil { return nil, fmt.Errorf("pandoc failed: %v: %s", err, string(out)) }
