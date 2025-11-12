@@ -206,39 +206,43 @@ func main() {
 	if err := os.WriteFile(fname, []byte(md), 0644); err != nil {
 		log.Fatalf("failed to write file: %v", err)
 	}
-	if strings.TrimSpace(*rcloneFolderID) != "" {
-		if _, err := exec.LookPath("rclone"); err != nil {
-			log.Fatalf("rclone not found in PATH; install from https://rclone.org")
+		if strings.TrimSpace(*rcloneFolderID) != "" {
+			if _, err := exec.LookPath("rclone"); err != nil {
+				log.Fatalf("rclone not found in PATH; install from https://rclone.org")
+			}
+			// Convert Markdown to DOCX via pandoc; if not available, skip upload with a message
+			if _, err := exec.LookPath("pandoc"); err != nil {
+				fmt.Fprintln(os.Stderr, "pandoc not found; skipping Drive upload via rclone. Install pandoc to enable doc upload.")
+			} else {
+				docTitle := fmt.Sprintf("%s (%s)", selectedUserName, filtered[idx].Name)
+				docxPath := filepath.Join(os.TempDir(), docTitle+".docx")
+				_, err := runWithSpinner(ctx, "Converting to DOCX...", func(c context.Context) (any, error) {
+					args := []string{"-f", "gfm", "-t", "docx", "-o", docxPath, "--metadata=title:" + docTitle, fname}
+					cmd := exec.CommandContext(c, "pandoc", args...)
+					out, err := cmd.CombinedOutput()
+					if err != nil { return nil, fmt.Errorf("pandoc failed: %v: %s", err, string(out)) }
+					return string(out), nil
+				})
+				if err != nil { log.Fatalf("pandoc conversion failed: %v", err) }
+				fmt.Fprintln(os.Stderr)
+				_, err = runWithSpinner(ctx, "Uploading via rclone...", func(c context.Context) (any, error) {
+					args := []string{"copyto", docxPath, fmt.Sprintf("%s:%s", *rcloneRemote, docTitle), "--drive-root-folder-id=" + *rcloneFolderID, "--drive-import-formats", "docx"}
+					cmd := exec.CommandContext(c, "rclone", args...)
+					out, err := cmd.CombinedOutput()
+					if err != nil { return nil, fmt.Errorf("rclone copyto failed: %v: %s", err, string(out)) }
+					return string(out), nil
+				})
+				if err != nil { log.Fatalf("rclone upload failed: %v", err) }
+				linkArgs := []string{"link", fmt.Sprintf("%s:%s", *rcloneRemote, docTitle), "--drive-root-folder-id=" + *rcloneFolderID}
+				if linkOut, err := exec.Command("rclone", linkArgs...).CombinedOutput(); err == nil {
+					if ln := strings.TrimSpace(string(linkOut)); ln != "" { fmt.Printf("Drive URL: %s\n", ln) }
+				}
+			}
 		}
-		// Convert Markdown to DOCX via pandoc if available; otherwise skip upload
-        if _, err := exec.LookPath("pandoc"); err != nil {
-            fmt.Fprintln(os.Stderr, "pandoc not found; skipping Drive upload via rclone. Install pandoc to enable doc upload.")
-            docTitle := fmt.Sprintf("%s (%s)", selectedUserName, filtered[idx].Name)
-            docxPath := filepath.Join(os.TempDir(), docTitle+".docx")
-            _, err := runWithSpinner(ctx, "Converting to DOCX...", func(c context.Context) (any, error) {
-                args := []string{"-f", "gfm", "-t", "docx", "-o", docxPath, "--metadata=title:" + docTitle, fname}
-                cmd := exec.CommandContext(c, "pandoc", args...)
-                out, err := cmd.CombinedOutput()
-                if err != nil { return nil, fmt.Errorf("pandoc failed: %v: %s", err, string(out)) }
-                return string(out), nil
-            })
-            if err != nil { log.Fatalf("pandoc conversion failed: %v", err) }
-            fmt.Fprintln(os.Stderr)
-            _, err = runWithSpinner(ctx, "Uploading via rclone...", func(c context.Context) (any, error) {
-                args := []string{"copyto", docxPath, fmt.Sprintf("%s:%s", *rcloneRemote, docTitle), "--drive-root-folder-id=" + *rcloneFolderID, "--drive-import-formats", "docx"}
-                cmd := exec.CommandContext(c, "rclone", args...)
-                out, err := cmd.CombinedOutput()
-                if err != nil { return nil, fmt.Errorf("rclone copyto failed: %v: %s", err, string(out)) }
-                return string(out), nil
-            })
-            if err != nil { log.Fatalf("rclone upload failed: %v", err) }
-            linkArgs := []string{"link", fmt.Sprintf("%s:%s", *rcloneRemote, docTitle), "--drive-root-folder-id=" + *rcloneFolderID}
-            if linkOut, err := exec.Command("rclone", linkArgs...).CombinedOutput(); err == nil {
-                if ln := strings.TrimSpace(string(linkOut)); ln != "" { fmt.Printf("Drive URL: %s\n", ln) }
-    
-	fmt.Println()
-	fmt.Printf("Wrote %s\n", fname)
-}
+
+		fmt.Println()
+		fmt.Printf("Wrote %s\n", fname)
+	}
 
 type listModel struct {
 	title  string
