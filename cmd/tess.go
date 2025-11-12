@@ -9,7 +9,6 @@ import (
 	"html"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -233,8 +232,8 @@ func main() {
 	}
 	uploadedURL := ""
 	if strings.TrimSpace(*rcloneFolderID) != "" {
-		if _, err := exec.LookPath("rclone"); err != nil {
-			log.Fatalf("rclone not found in PATH; install from https://rclone.org")
+		if err := api.RcloneAvailable(); err != nil {
+			log.Fatalf("%v; install from https://rclone.org", err)
 		}
 		// Normalize format
 		fmtStr := strings.ToLower(strings.TrimSpace(*uploadFormat))
@@ -267,24 +266,14 @@ func main() {
 					log.Fatalf("pandoc conversion failed: %v", err)
 				}
 				// Upload as a regular PDF file (no import)
-				_, err = runWithSpinner(ctx, "Uploading PDF via rclone...", func(c context.Context) (any, error) {
-					dest := fmt.Sprintf("%s:%s.pdf", remoteName, docTitle)
-					args := []string{"copyto", pdfPath, dest, "--drive-root-folder-id=" + *rcloneFolderID}
-					cmd := exec.CommandContext(c, "rclone", args...)
-					out, err := cmd.CombinedOutput()
-					if err != nil {
-						return nil, fmt.Errorf("rclone copyto failed: %v: %s", err, string(out))
-					}
-					return string(out), nil
+				uploadAny, err := runWithSpinner(ctx, "Uploading PDF via rclone...", func(c context.Context) (any, error) {
+					return api.CopyToAndLink(c, remoteName, *rcloneFolderID, pdfPath, docTitle+".pdf", "")
 				})
 				if err != nil {
 					log.Fatalf("rclone upload failed: %v", err)
 				}
-				linkArgs := []string{"link", fmt.Sprintf("%s:%s.pdf", remoteName, docTitle), "--drive-root-folder-id=" + *rcloneFolderID}
-				if linkOut, err := exec.Command("rclone", linkArgs...).CombinedOutput(); err == nil {
-					if ln := strings.TrimSpace(string(linkOut)); ln != "" {
-						uploadedURL = ln
-					}
+				if ln, ok := uploadAny.(string); ok && strings.TrimSpace(ln) != "" {
+					uploadedURL = ln
 				}
 			} else {
 				docxPath := filepath.Join(os.TempDir(), docTitle+".docx")
@@ -292,23 +281,14 @@ func main() {
 				if err != nil {
 					log.Fatalf("pandoc conversion failed: %v", err)
 				}
-				_, err = runWithSpinner(ctx, "Uploading via rclone...", func(c context.Context) (any, error) {
-					args := []string{"copyto", docxPath, fmt.Sprintf("%s:%s", remoteName, docTitle), "--drive-root-folder-id=" + *rcloneFolderID, "--drive-import-formats", "docx"}
-					cmd := exec.CommandContext(c, "rclone", args...)
-					out, err := cmd.CombinedOutput()
-					if err != nil {
-						return nil, fmt.Errorf("rclone copyto failed: %v: %s", err, string(out))
-					}
-					return string(out), nil
+				uploadAny, err := runWithSpinner(ctx, "Uploading via rclone...", func(c context.Context) (any, error) {
+					return api.CopyToAndLink(c, remoteName, *rcloneFolderID, docxPath, docTitle, "docx")
 				})
 				if err != nil {
 					log.Fatalf("rclone upload failed: %v", err)
 				}
-				linkArgs := []string{"link", fmt.Sprintf("%s:%s", remoteName, docTitle), "--drive-root-folder-id=" + *rcloneFolderID}
-				if linkOut, err := exec.Command("rclone", linkArgs...).CombinedOutput(); err == nil {
-					if ln := strings.TrimSpace(string(linkOut)); ln != "" {
-						uploadedURL = ln
-					}
+				if ln, ok := uploadAny.(string); ok && strings.TrimSpace(ln) != "" {
+					uploadedURL = ln
 				}
 			}
 		}
@@ -326,7 +306,7 @@ func main() {
 		fmt.Println()
 		if strings.TrimSpace(*rcloneFolderID) == "" {
 			fmt.Fprintln(os.Stderr, "--copy-templates requires --rclone-folder-id to be set")
-		} else if _, err := exec.LookPath("rclone"); err != nil {
+		} else if err := api.RcloneAvailable(); err != nil {
 			fmt.Fprintln(os.Stderr, "rclone not found; cannot copy templates")
 		} else {
 			remoteName := *rcloneRemote
@@ -363,15 +343,7 @@ func main() {
 				}
 				title := fmt.Sprintf("Copying template: %s...", cp.name)
 				_, err := runWithSpinner(ctx, title, func(c context.Context) (any, error) {
-					// Server-side copy by ID to destination folder FS, preserving original name.
-					dstFs := fmt.Sprintf("%s,root_folder_id=%s:", remoteName, *rcloneFolderID)
-					args := []string{"backend", "copyid", remoteName + ":", cp.id, dstFs, "--drive-server-side-across-configs"}
-					cmd := exec.CommandContext(c, "rclone", args...)
-					out, err := cmd.CombinedOutput()
-					if err != nil {
-						return nil, fmt.Errorf("rclone backend copyid failed: %v: %s", err, string(out))
-					}
-					return dstFs, nil
+					return nil, api.CopyByIDToFolder(c, remoteName, *rcloneFolderID, cp.id)
 				})
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "failed to copy template %s: %v\n", cp.name, err)
