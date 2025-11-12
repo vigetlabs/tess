@@ -322,6 +322,8 @@ func main() {
 
 	// Optionally copy templates into the Drive folder
 	if *copyTemplates {
+		// Visual separation from upload summary
+		fmt.Println()
 		if strings.TrimSpace(*rcloneFolderID) == "" {
 			fmt.Fprintln(os.Stderr, "--copy-templates requires --rclone-folder-id to be set")
 		} else if _, err := exec.LookPath("rclone"); err != nil {
