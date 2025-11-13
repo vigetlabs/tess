@@ -100,7 +100,8 @@ func main() {
 		fmt.Fprintf(out, "  tess doctor\n\n")
 		fmt.Fprintf(out, "Subcommands:\n")
 		fmt.Fprintf(out, "  setup   First-time configuration wizard (writes ~/.tess/config.toml)\n")
-		fmt.Fprintf(out, "  doctor  Environment and API diagnostics\n\n")
+		fmt.Fprintf(out, "  doctor  Environment and API diagnostics\n")
+		fmt.Fprintf(out, "  version Print the current version\n\n")
 		fmt.Fprintf(out, "Flags:\n")
 		flag.PrintDefaults()
 	}
@@ -131,6 +132,9 @@ func main() {
 			if code != 0 {
 				os.Exit(code)
 			}
+			return
+		case "version":
+			fmt.Println(api.Version)
 			return
 		case "help":
 			flag.Usage()

@@ -75,6 +75,20 @@ The interactive UI supports:
 - Enter to select
 - q or Ctrl+C to quit
 
+### Subcommands
+
+- setup: First-time configuration wizard (writes `~/.tess/config.toml`).
+- doctor: Environment and API diagnostics.
+- version: Print the current version.
+
+Examples:
+
+```
+tess setup
+tess doctor
+tess version
+```
+
 ## Flags
 
 - `--config`: Path to config TOML (default: `~/.tess/config.toml`).
