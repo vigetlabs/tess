@@ -19,7 +19,7 @@ builds:
 archives:
   - id: archive
     ids: [tess]
-    formats: ['zip']
+    formats: [tar.gz]
     name_template: '{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}_v{{ .Version }}'
     files:
       - README.md
@@ -27,6 +27,27 @@ archives:
 
 checksum:
   name_template: 'checksums_v{{ .Version }}.txt'
+
+brews:
+  - name: tess
+    repository:
+      owner: vigetlabs
+      name: homebrew-taps
+    directory: Formula
+    description: Generate Lattice review summaries; optional Drive upload via rclone.
+    homepage: https://github.com/vigetlabs/tess
+    license: "" # internal-use; omit or set if you later add a license
+    dependencies:
+      - name: rclone
+      - name: pandoc
+      - name: tectonic
+    test: |
+      system "#{bin}/tess", "--help"
+    install: |
+      bin.install "tess"
+    commit_author:
+      name: tess-bot
+      email: noreply@viget.com
 
 release:
   draft: false

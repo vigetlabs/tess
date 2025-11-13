@@ -16,6 +16,28 @@ Tess is a small CLI that pulls review information from the Lattice API and helps
 - Build: `make`
 - Run: `./bin/tess`
 
+### Homebrew (macOS)
+
+You can install Tess via Homebrew using our tap:
+
+```
+brew tap vigetlabs/taps
+brew install tess
+```
+
+Upgrade later with:
+
+```
+brew upgrade tess
+```
+
+The Homebrew formula installs a prebuilt macOS arm64 binary and declares the following dependencies:
+
+- rclone: required for Google Drive upload features
+- pandoc: required for DOCX/PDF export
+
+If you don’t need Drive export, Tess can still generate local Markdown reports without these tools.
+
 ### Releases
 
 - Tags drive releases. Create a tag like `v1.2.3` and push it; GitHub Actions runs GoReleaser to build macOS binaries for arm64 and amd64 and attach zipped artifacts to the release.
