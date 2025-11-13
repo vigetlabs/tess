@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -59,6 +60,60 @@ func CopyByIDToFolder(ctx context.Context, remoteName, folderID, fileID string) 
 	cmd := exec.CommandContext(ctx, "rclone", args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("rclone backend copyid failed: %v: %s", err, string(out))
+	}
+	return nil
+}
+
+// RemoteExists returns true if an rclone remote with the given name exists.
+func RemoteExists(ctx context.Context, name string) (bool, error) {
+	if err := RcloneAvailable(); err != nil {
+		return false, err
+	}
+	cmd := exec.CommandContext(ctx, "rclone", "listremotes")
+	out, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("rclone listremotes failed: %w", err)
+	}
+	target := strings.TrimSpace(name)
+	for _, ln := range strings.Split(string(out), "\n") {
+		ln = strings.TrimSpace(strings.TrimSuffix(ln, ":"))
+		if ln == target && ln != "" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// RunRcloneConfig launches the interactive rclone config wizard attached to the current stdio.
+func RunRcloneConfig(ctx context.Context) error {
+	if err := RcloneAvailable(); err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, "rclone", "config")
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// CreateDriveRemote attempts to non-interactively create a Google Drive remote
+// with the given name and scope using rclone's config create command.
+// It may still open a browser window to complete OAuth, but avoids the menu wizard.
+func CreateDriveRemote(ctx context.Context, name string, scope string) error {
+	if err := RcloneAvailable(); err != nil {
+		return err
+	}
+	s := strings.TrimSpace(scope)
+	if s == "" {
+		s = "drive"
+	}
+	args := []string{"config", "create", name, "drive", "scope=" + s}
+	cmd := exec.CommandContext(ctx, "rclone", args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("rclone config create failed: %w", err)
 	}
 	return nil
 }

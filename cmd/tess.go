@@ -90,6 +90,24 @@ func loadConfigFromTOML(path string) (fileConfig, error) {
 }
 
 func main() {
+	// Subcommand dispatch (before parsing flags)
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "setup":
+			if err := api.RunSetup(context.Background()); err != nil {
+				fmt.Fprintf(os.Stderr, "setup error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "doctor":
+			code := api.RunDoctor(context.Background())
+			if code != 0 {
+				os.Exit(code)
+			}
+			return
+		}
+	}
+
 	cfgFlag := flag.String("config", "", "Path to config TOML (default: ~/.tess/config.toml)")
 	rcloneRemote := flag.String("rclone-remote", "drive", "rclone remote name to upload to (default: drive)")
 	rcloneFolderID := flag.String("rclone-folder-id", "", "Google Drive folder ID; if set, upload via rclone to this folder")
