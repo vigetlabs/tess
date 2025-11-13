@@ -90,6 +90,33 @@ func loadConfigFromTOML(path string) (fileConfig, error) {
 }
 
 func main() {
+	// Custom usage to include subcommands
+	flag.Usage = func() {
+		out := flag.CommandLine.Output()
+		fmt.Fprintf(out, "Tess — generate review summaries and optionally upload to Drive\n\n")
+		fmt.Fprintf(out, "Usage:\n")
+		fmt.Fprintf(out, "  tess [flags]\n")
+		fmt.Fprintf(out, "  tess setup\n")
+		fmt.Fprintf(out, "  tess doctor\n\n")
+		fmt.Fprintf(out, "Subcommands:\n")
+		fmt.Fprintf(out, "  setup   First-time configuration wizard (writes ~/.tess/config.toml)\n")
+		fmt.Fprintf(out, "  doctor  Environment and API diagnostics\n\n")
+		fmt.Fprintf(out, "Flags:\n")
+		flag.PrintDefaults()
+	}
+
+	// Define flags first so --help shows them even without parsing
+	cfgFlag := flag.String("config", "", "Path to config TOML (default: ~/.tess/config.toml)")
+	rcloneRemote := flag.String("rclone-remote", "drive", "rclone remote name to upload to (default: drive)")
+	rcloneFolderID := flag.String("rclone-folder-id", "", "Google Drive folder ID; if set, upload via rclone to this folder")
+	uploadFormat := flag.String("upload-format", "docx", "Upload format when using rclone: docx (Google Doc import) or pdf")
+	pdfEngine := flag.String("pdf-engine", "", "Preferred PDF engine for pandoc (e.g., tectonic, xelatex). Leave empty for auto.")
+	copyTemplates := flag.Bool("copy-templates", false, "Copy template docs into the Drive folder after export")
+	censorFlag := flag.Bool("censor", false, "Censor reviewer names, scores, and quotes in the output")
+	templateHubID := flag.String("template-hub-id", "1HU2Jm_JLaLOLPR6V6HjPI4VzwzZRw_OCOvsT3rC_8G0", "Google Doc file ID for the Hub template")
+	templateCoverID := flag.String("template-cover-id", "1vX9gElaEXkQYReZTEb1151x1JnYDSw64eObiWjS7Sp4", "Google Doc file ID for the Cover template")
+	templateReviewID := flag.String("template-review-id", "1OLd7jgwsoKSFiTsiWtOjw9k_c9BfNhx0XRFdMYDaLP0", "Google Doc file ID for the Review template")
+
 	// Subcommand dispatch (before parsing flags)
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -105,19 +132,11 @@ func main() {
 				os.Exit(code)
 			}
 			return
+		case "help":
+			flag.Usage()
+			return
 		}
 	}
-
-	cfgFlag := flag.String("config", "", "Path to config TOML (default: ~/.tess/config.toml)")
-	rcloneRemote := flag.String("rclone-remote", "drive", "rclone remote name to upload to (default: drive)")
-	rcloneFolderID := flag.String("rclone-folder-id", "", "Google Drive folder ID; if set, upload via rclone to this folder")
-	uploadFormat := flag.String("upload-format", "docx", "Upload format when using rclone: docx (Google Doc import) or pdf")
-	pdfEngine := flag.String("pdf-engine", "", "Preferred PDF engine for pandoc (e.g., tectonic, xelatex). Leave empty for auto.")
-	copyTemplates := flag.Bool("copy-templates", false, "Copy template docs into the Drive folder after export")
-	censorFlag := flag.Bool("censor", false, "Censor reviewer names, scores, and quotes in the output")
-	templateHubID := flag.String("template-hub-id", "1HU2Jm_JLaLOLPR6V6HjPI4VzwzZRw_OCOvsT3rC_8G0", "Google Doc file ID for the Hub template")
-	templateCoverID := flag.String("template-cover-id", "1vX9gElaEXkQYReZTEb1151x1JnYDSw64eObiWjS7Sp4", "Google Doc file ID for the Cover template")
-	templateReviewID := flag.String("template-review-id", "1OLd7jgwsoKSFiTsiWtOjw9k_c9BfNhx0XRFdMYDaLP0", "Google Doc file ID for the Review template")
 	flag.Parse()
 	var cfgPath string
 	if *cfgFlag != "" {
