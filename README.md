@@ -123,7 +123,7 @@ Tess performs the copy using rclone’s Drive backend copy-by-ID into the folder
 Notes:
 
 - If `--rclone-folder-id` is omitted, no rclone upload is attempted.
-- The uploaded Doc/PDF is titled exactly the review cycle name (no user name) and is placed directly in the folder with the given ID (no extra subfolder).
+- The uploaded Doc/PDF is titled "Peer & Self Reviews" and is placed directly in the folder with the given ID (no extra subfolder).
 
 ## Google Drive Upload (rclone + pandoc)
 
