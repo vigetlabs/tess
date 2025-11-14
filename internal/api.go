@@ -173,7 +173,20 @@ func (c *Client) ListUsersByURL(ctx context.Context, listURL string) ([]User, er
 }
 
 func (c *Client) ListReviewCycles(ctx context.Context) ([]ReviewCycle, error) {
-	req, err := c.newRequest(ctx, http.MethodGet, "/v1/reviewCycles", nil)
+	// Build URL and append limit=100 to ensure we fetch enough cycles
+	full, err := c.resolve("/v1/reviewCycles")
+	if err != nil {
+		return nil, err
+	}
+	u, err := url.Parse(full)
+	if err != nil {
+		return nil, err
+	}
+	q := u.Query()
+	q.Set("limit", "100")
+	u.RawQuery = q.Encode()
+
+	req, err := c.newRequest(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, err
 	}
