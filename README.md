@@ -10,33 +10,75 @@ Tess is a small CLI that pulls review information from the Lattice API and helps
 - Generates a local Markdown file titled `firstname_lastname_cycle_name.md`
 - Optional upload to Google Drive as a native Google Doc (DOCX import) or as a PDF
 
-## Install / Build
+## Quick Start
 
-- Requirements: Go 1.24.x
-- Build: `make`
-- Run: `./bin/tess`
+Follow these steps on macOS to install and run Tess using Homebrew.
 
-### Homebrew (macOS)
+1) Open Terminal
 
-You can install Tess via Homebrew using our tap:
+- Open `Applications → Utilities → Terminal`.
+
+2) Check Homebrew
+
+- Run: `which brew`
+- If you see a path (like `/opt/homebrew/bin/brew`), you’re good.
+- If not installed, go to https://brew.sh/#install and follow the instructions.
+
+3) Add `vigetlabs` tap and install
 
 ```
 brew tap vigetlabs/taps
 brew install tess
 ```
 
-Upgrade later with:
+- This also installs required tools for Drive export (`rclone`, `pandoc`).
+
+4) Generate a Lattice API key
+
+- Visit: https://viget.latticehq.com/admin/settings/api-keys
+- Create an API key. Keep it handy.
+
+5) Run setup
 
 ```
-brew upgrade tess
+tess setup
 ```
 
-The Homebrew formula installs a prebuilt macOS arm64 binary and declares the following dependencies:
+- Paste your API key when prompted.
+- Confirm the Google Drive `rclone` info and accept the OAuth connection.
 
-- rclone: required for Google Drive upload features
-- pandoc: required for DOCX/PDF export
+6) Run diagnostics
 
-If you don’t need Drive export, Tess can still generate local Markdown reports without these tools.
+```
+tess doctor
+```
+
+You should see lines like:
+
+- `✓ Loaded config` with a masked `api_key` value
+- `✓ Lattice API reachable and token accepted` and your name/email
+- `✓ rclone found`
+- `✓ rclone remote 'drive' present`
+- `✓ pandoc found`
+
+7) Get a Google Drive folder ID
+
+- Open your target folder in Google Drive, e.g. `https://drive.google.com/drive/folders/1Zte6JSoXX-L3vHiehI56spri8N_XXXXX`.
+- The long string after `folders/` is the ID: `1Zte6JSoXX-L3vHiehI56spri8N_XXXXX`.
+
+8) Run Tess
+
+```
+tess --rclone-folder-id 1Zte6JSoXX-L3vHiehI56spri8N_XXXXX --copy-templates
+```
+
+Tess will guide you to pick a person and a review cycle, generate a Markdown summary, upload a Word doc with peer & self reviews, and copy the templates into that folder.
+
+## Install / Build
+
+- Requirements: Go 1.24.x
+- Build: `make`
+- Run: `./bin/tess`
 
 ### Releases
 
